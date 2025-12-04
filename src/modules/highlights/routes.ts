@@ -249,13 +249,21 @@ router.post('/notes', authToken, async (req: AuthenticatedRequest, res, next) =>
       }
     }
 
+    const noteData: any = {
+      content: body.content,
+      userId,
+    };
+
+    if (body.highlightId) {
+      noteData.highlightId = body.highlightId;
+    }
+
+    if (body.articleId) {
+      noteData.articleId = body.articleId;
+    }
+
     const note = await prisma.note.create({
-      data: {
-        content: body.content,
-        highlightId: body.highlightId,
-        articleId: body.articleId,
-        userId,
-      },
+      data: noteData,
     });
 
     res.status(201).json({ data: note });
