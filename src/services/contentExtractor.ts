@@ -109,8 +109,13 @@ export async function extractContent(url: string, useCache: boolean = true): Pro
 
       if (article) {
         // Sanitize HTML content
-        const sanitizedContent = sanitizeHtml(article.content || '');
-        metadata.content = article.textContent || sanitizedContent;
+        let sanitizedContent = sanitizeHtml(article.content || '');
+        
+        // Normalize image URLs to absolute URLs
+        sanitizedContent = normalizeImageUrls(sanitizedContent, url);
+        
+        // Save HTML content (not just text)
+        metadata.content = sanitizedContent || article.textContent || '';
         metadata.title = article.title || metadata.title;
         
         // Extract images from article content
@@ -118,9 +123,10 @@ export async function extractContent(url: string, useCache: boolean = true): Pro
           metadata.images = extractImagesFromHtml(article.content);
         }
         
-        // Calculate word count and reading time
-        if (metadata.content) {
-          const words = metadata.content.split(/\s+/).filter(word => word.length > 0);
+        // Calculate word count and reading time from text content
+        const textContent = article.textContent || '';
+        if (textContent) {
+          const words = textContent.split(/\s+/).filter(word => word.length > 0);
           metadata.wordCount = words.length;
           // Average reading speed: 200 words per minute
           metadata.readingTime = Math.ceil((words.length / 200) * 60);
@@ -431,6 +437,37 @@ function extractPublishedDate(document: Document): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * Normalize image URLs in HTML content - convert relative URLs to absolute
+ */
+function normalizeImageUrls(html: string, baseUrl: string): string {
+  try {
+    const baseUrlObj = new URL(baseUrl);
+    
+    // Replace relative image URLs with absolute URLs
+    html = html.replace(/<img([^>]+)src=["']([^"']+)["']([^>]*)>/gi, (match, before, src, after) => {
+      // Skip data URLs and already absolute URLs
+      if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
+        return match;
+      }
+      
+      try {
+        // Convert relative URL to absolute
+        const absoluteUrl = new URL(src, baseUrlObj.toString()).toString();
+        return `<img${before}src="${absoluteUrl}"${after}>`;
+      } catch {
+        // If URL conversion fails, return original
+        return match;
+      }
+    });
+    
+    return html;
+  } catch {
+    // If base URL is invalid, return original HTML
+    return html;
+  }
 }
 
 /**
