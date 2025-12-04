@@ -22,6 +22,8 @@ const updateArticleSchema = z.object({
   status: z.enum(['UNREAD', 'READING', 'FINISHED', 'ARCHIVED']).optional(),
   isFavorited: z.boolean().optional(),
   readingProgress: z.number().min(0).max(1).optional(),
+  totalPages: z.number().int().positive().nullable().optional(),
+  currentPage: z.number().int().min(0).nullable().optional(),
   attributes: z.record(z.any()).optional(),
   title: z.string().optional(),
   description: z.string().optional(),
@@ -127,6 +129,7 @@ router.post('/', async (req, res, next) => {
         contentType: metadata.contentType,
         wordCount: metadata.wordCount,
         readingTime: metadata.readingTime,
+        totalPages: metadata.totalPages,
         attributes: body.attributes || {},
       },
     });
@@ -189,6 +192,42 @@ router.get('/', authToken, async (req: AuthenticatedRequest, res, next) => {
         totalPages: Math.ceil(total / limit),
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /articles/counts - Obter contagens por status
+router.get('/counts', authToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const userId = req.userId!;
+
+    const [countsByStatus, total] = await Promise.all([
+      prisma.article.groupBy({
+        by: ['status'],
+        where: { userId },
+        _count: true,
+      }),
+      prisma.article.count({
+        where: { userId },
+      }),
+    ]);
+
+    // Inicializar contagens com zero para todos os status
+    const counts = {
+      UNREAD: 0,
+      READING: 0,
+      FINISHED: 0,
+      ARCHIVED: 0,
+      total,
+    };
+
+    // Preencher contagens reais
+    countsByStatus.forEach((item) => {
+      counts[item.status as keyof typeof counts] = item._count;
+    });
+
+    res.json({ data: counts });
   } catch (error) {
     next(error);
   }
@@ -320,11 +359,60 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
     if (body.isFavorited !== undefined) {
       updateData.isFavorited = body.isFavorited;
     }
+    
+    // Handle page tracking and sync with readingProgress
+    if (body.totalPages !== undefined) {
+      updateData.totalPages = body.totalPages;
+    }
+    if (body.currentPage !== undefined) {
+      updateData.currentPage = body.currentPage;
+      updateData.lastReadAt = new Date();
+      updateData.readCount = { increment: 1 };
+      
+      // Sync readingProgress if totalPages is available and currentPage is not null
+      if (body.currentPage !== null) {
+        const totalPages = body.totalPages !== undefined ? body.totalPages : article.totalPages;
+        if (totalPages && totalPages > 0) {
+          const newProgress = Math.min(body.currentPage / totalPages, 1);
+          updateData.readingProgress = newProgress;
+          
+          // Update status based on progress
+          if (newProgress >= 0.95 || body.currentPage >= totalPages) {
+            updateData.status = 'FINISHED';
+            updateData.finishedAt = new Date();
+          } else if (newProgress > 0 && article.status === 'UNREAD') {
+            updateData.status = 'READING';
+          }
+        }
+        
+        // Validate currentPage doesn't exceed totalPages
+        const finalTotalPages = body.totalPages !== undefined ? body.totalPages : article.totalPages;
+        if (finalTotalPages && body.currentPage > finalTotalPages) {
+          return res.status(400).json({ error: 'Página atual não pode ser maior que o total de páginas' });
+        }
+      }
+    }
+    
     if (body.readingProgress !== undefined) {
       updateData.readingProgress = body.readingProgress;
       updateData.lastReadAt = new Date();
       updateData.readCount = { increment: 1 };
+      
+      // Sync currentPage if totalPages is available
+      const totalPages = article.totalPages;
+      if (totalPages && totalPages > 0) {
+        updateData.currentPage = Math.round(body.readingProgress * totalPages);
+      }
+      
+      // Update status based on progress
+      if (body.readingProgress >= 0.95) {
+        updateData.status = 'FINISHED';
+        updateData.finishedAt = new Date();
+      } else if (body.readingProgress > 0 && article.status === 'UNREAD') {
+        updateData.status = 'READING';
+      }
     }
+    
     if (body.attributes !== undefined) {
       updateData.attributes = body.attributes;
     }
@@ -381,11 +469,7 @@ router.post('/:id/read', authToken, async (req: AuthenticatedRequest, res, next)
   try {
     const userId = req.userId!;
     const articleId = req.params.id;
-    const { progress } = req.body;
-
-    if (typeof progress !== 'number' || progress < 0 || progress > 1) {
-      return res.status(400).json({ error: 'Progresso deve ser um número entre 0 e 1' });
-    }
+    const { progress, currentPage } = req.body;
 
     const article = await prisma.article.findFirst({
       where: {
@@ -399,15 +483,49 @@ router.post('/:id/read', authToken, async (req: AuthenticatedRequest, res, next)
     }
 
     const updateData: any = {
-      readingProgress: progress,
       lastReadAt: new Date(),
     };
 
-    if (progress === 1) {
-      updateData.status = 'FINISHED';
-      updateData.finishedAt = new Date();
-    } else if (progress > 0 && article.status === 'UNREAD') {
-      updateData.status = 'READING';
+    // Handle page-based update
+    if (typeof currentPage === 'number' && currentPage >= 0) {
+      if (article.totalPages && currentPage > article.totalPages) {
+        return res.status(400).json({ error: 'Página atual não pode ser maior que o total de páginas' });
+      }
+      
+      updateData.currentPage = currentPage;
+      updateData.readCount = { increment: 1 };
+      
+      // Calculate readingProgress from currentPage
+      if (article.totalPages && article.totalPages > 0) {
+        const calculatedProgress = Math.min(currentPage / article.totalPages, 1);
+        updateData.readingProgress = calculatedProgress;
+        
+        if (calculatedProgress >= 0.95 || currentPage >= article.totalPages) {
+          updateData.status = 'FINISHED';
+          updateData.finishedAt = new Date();
+        } else if (calculatedProgress > 0 && article.status === 'UNREAD') {
+          updateData.status = 'READING';
+        }
+      }
+    }
+    // Handle percentage-based update
+    else if (typeof progress === 'number' && progress >= 0 && progress <= 1) {
+      updateData.readingProgress = progress;
+      updateData.readCount = { increment: 1 };
+      
+      // Sync currentPage if totalPages is available
+      if (article.totalPages && article.totalPages > 0) {
+        updateData.currentPage = Math.round(progress * article.totalPages);
+      }
+      
+      if (progress === 1) {
+        updateData.status = 'FINISHED';
+        updateData.finishedAt = new Date();
+      } else if (progress > 0 && article.status === 'UNREAD') {
+        updateData.status = 'READING';
+      }
+    } else {
+      return res.status(400).json({ error: 'Deve fornecer progress (0-1) ou currentPage (número >= 0)' });
     }
 
     const updated = await prisma.article.update({

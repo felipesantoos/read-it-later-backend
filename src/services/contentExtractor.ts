@@ -12,6 +12,7 @@ export interface ExtractedMetadata {
   contentType: 'ARTICLE' | 'BLOG' | 'PDF' | 'YOUTUBE' | 'TWITTER' | 'NEWSLETTER' | 'BOOK' | 'EBOOK';
   wordCount?: number;
   readingTime?: number; // in seconds
+  totalPages?: number; // Total number of pages (for books, PDFs, ebooks)
 }
 
 export async function extractContent(url: string): Promise<ExtractedMetadata> {
@@ -25,6 +26,12 @@ export async function extractContent(url: string): Promise<ExtractedMetadata> {
         contentType,
         title: extractTitleFromUrl(url),
       };
+    }
+
+    // Try to detect total pages for PDFs, BOOKs, and EBOOKs
+    let totalPages: number | undefined;
+    if (contentType === 'PDF' || contentType === 'BOOK' || contentType === 'EBOOK') {
+      totalPages = await tryDetectTotalPages(url, contentType);
     }
 
     // Fetch the page (using global fetch available in Node.js 18+)
@@ -50,6 +57,7 @@ export async function extractContent(url: string): Promise<ExtractedMetadata> {
       favicon: extractFavicon(document, url),
       coverImage: extractCoverImage(document),
       siteName: extractSiteName(document),
+      totalPages,
     };
 
     // Use Readability to extract clean content
@@ -231,5 +239,47 @@ function extractTitleFromUrl(url: string): string {
 
 export function generateUrlHash(url: string): string {
   return crypto.createHash('sha256').update(url).digest('hex');
+}
+
+/**
+ * Attempts to detect the total number of pages for PDFs, books, and ebooks.
+ * This is a best-effort function that may not always succeed.
+ * For PDFs, this would require a PDF parsing library (e.g., pdf-parse).
+ * For EPUBs, this would require an EPUB parsing library.
+ * Returns undefined if detection is not possible or fails.
+ */
+async function tryDetectTotalPages(url: string, contentType: 'PDF' | 'BOOK' | 'EBOOK'): Promise<number | undefined> {
+  try {
+    // For PDFs, we would need a library like pdf-parse
+    // This is a placeholder that can be extended with actual PDF parsing
+    if (contentType === 'PDF') {
+      // TODO: Implement PDF page count detection using pdf-parse or similar
+      // Example:
+      // const pdfBuffer = await fetch(url).then(r => r.arrayBuffer());
+      // const pdf = await pdfParse(Buffer.from(pdfBuffer));
+      // return pdf.numpages;
+      return undefined;
+    }
+
+    // For EPUBs, we would need an EPUB parsing library
+    if (contentType === 'EBOOK') {
+      // TODO: Implement EPUB page count detection
+      // EPUB files are ZIP archives containing HTML files
+      // Would need to parse the .epub file structure
+      return undefined;
+    }
+
+    // For books, we might try to extract from metadata or API
+    if (contentType === 'BOOK') {
+      // Could try to fetch from book APIs (Google Books, Open Library, etc.)
+      // For now, return undefined to allow manual entry
+      return undefined;
+    }
+
+    return undefined;
+  } catch (error) {
+    console.warn('Failed to detect total pages:', error);
+    return undefined;
+  }
 }
 
