@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String?      @unique
+  createdAt    DateTime     @default(now())
+  accessTokens AccessToken[]
+  articles     Article[]
+  collections  Collection[]
+  tags         Tag[]
+  highlights   Highlight[]
+  notes        Note[]
+}
+
+model AccessToken {
+  id         String   @id @default(cuid())
+  token      String   @unique
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@index([token])
+  @@index([userId])
+}
+
+model Article {
+  id          String   @id @default(cuid())
+  url         String
+  urlHash     String   @unique // For duplicate detection
+  title       String?
+  description String?
+  favicon     String?
+  coverImage  String?
+  siteName    String?
+  content     String?  // Full-text content for preservation
+  contentType ArticleContentType @default(ARTICLE)
+  status      ArticleStatus @default(UNREAD)
+  language    String?
+  
+  // Content attributes (stored as JSON)
+  attributes  Json? // Reading progress, page numbers, timestamps, etc.
+  
+  // Reading progress
+  readingProgress Float @default(0) // 0.0 to 1.0
+  readingTime     Int?  // Estimated reading time in seconds
+  wordCount       Int?
+  lastReadAt      DateTime?
+  readCount       Int @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  finishedAt  DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  // Relationships
+  articleTags      ArticleTag[]
+  articleCollections ArticleCollection[]
+  highlights       Highlight[]
+  notes            Note[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([urlHash])
+  @@index([createdAt])
+  @@index([userId, status])
+}
+
+model Collection {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  articleCollections ArticleCollection[]
+
+  @@index([userId])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  articleTags ArticleTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model ArticleTag {
+  id        String   @id @default(cuid())
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  articleId String
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tagId     String
+
+  @@unique([articleId, tagId])
+  @@index([articleId])
+  @@index([tagId])
+}
+
+model ArticleCollection {
+  id         String    @id @default(cuid())
+  article    Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  articleId  String
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  collectionId String
+
+  @@unique([articleId, collectionId])
+  @@index([articleId])
+  @@index([collectionId])
+}
+
+model Highlight {
+  id        String   @id @default(cuid())
+  text      String
+  position  String?  // Position identifier in the article
+  color     String?  // Highlight color
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  articleId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  notes Note[]
+
+  @@index([articleId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Note can be attached to highlight or article
+  highlight   Highlight? @relation(fields: [highlightId], references: [id], onDelete: Cascade)
+  highlightId String?
+
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  articleId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@index([articleId])
+  @@index([highlightId])
+  @@index([userId])
+}
+
+enum ArticleContentType {
+  ARTICLE
+  BLOG
+  PDF
+  YOUTUBE
+  TWITTER
+  NEWSLETTER
+  BOOK
+  EBOOK
+}
+
+enum ArticleStatus {
+  UNREAD
+  READING
+  FINISHED
+  ARCHIVED
+  FAVORITED
+}
+
