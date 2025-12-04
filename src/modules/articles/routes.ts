@@ -114,6 +114,21 @@ router.post('/', async (req, res, next) => {
       }
     }
 
+    // Merge attributes with extracted metadata
+    const attributes: Record<string, any> = {
+      ...(body.attributes || {}),
+    };
+    
+    if ('author' in metadata && metadata.author) {
+      attributes.author = metadata.author;
+    }
+    if ('publishedDate' in metadata && metadata.publishedDate) {
+      attributes.publishedDate = metadata.publishedDate;
+    }
+    if ('images' in metadata && Array.isArray(metadata.images) && metadata.images.length > 0) {
+      attributes.images = metadata.images;
+    }
+
     // Create article
     const article = await prisma.article.create({
       data: {
@@ -130,7 +145,7 @@ router.post('/', async (req, res, next) => {
         wordCount: metadata.wordCount,
         readingTime: metadata.readingTime,
         totalPages: metadata.totalPages,
-        attributes: body.attributes || {},
+        attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
       },
     });
 
