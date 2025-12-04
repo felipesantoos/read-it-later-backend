@@ -8,9 +8,9 @@ datasource db {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String?      @unique
-  createdAt    DateTime     @default(now())
+  id           String        @id @default(cuid())
+  email        String?       @unique
+  createdAt    DateTime      @default(now())
   accessTokens AccessToken[]
   articles     Article[]
   collections  Collection[]
@@ -20,9 +20,9 @@ model User {
 }
 
 model AccessToken {
-  id         String   @id @default(cuid())
-  token      String   @unique
-  createdAt  DateTime @default(now())
+  id         String    @id @default(cuid())
+  token      String    @unique
+  createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
   revokedAt  DateTime?
 
@@ -34,41 +34,42 @@ model AccessToken {
 }
 
 model Article {
-  id          String   @id @default(cuid())
+  id          String             @id @default(cuid())
   url         String
-  urlHash     String   @unique // For duplicate detection
+  urlHash     String             @unique // For duplicate detection
   title       String?
   description String?
   favicon     String?
   coverImage  String?
   siteName    String?
-  content     String?  // Full-text content for preservation
+  content     String? // Full-text content for preservation
   contentType ArticleContentType @default(ARTICLE)
-  status      ArticleStatus @default(UNREAD)
+  status      ArticleStatus      @default(UNREAD)
+  isFavorited Boolean            @default(false)
   language    String?
-  
+
   // Content attributes (stored as JSON)
-  attributes  Json? // Reading progress, page numbers, timestamps, etc.
-  
+  attributes Json? // Reading progress, page numbers, timestamps, etc.
+
   // Reading progress
-  readingProgress Float @default(0) // 0.0 to 1.0
-  readingTime     Int?  // Estimated reading time in seconds
+  readingProgress Float     @default(0) // 0.0 to 1.0
+  readingTime     Int? // Estimated reading time in seconds
   wordCount       Int?
   lastReadAt      DateTime?
-  readCount       Int @default(0)
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  finishedAt  DateTime?
+  readCount       Int       @default(0)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  finishedAt DateTime?
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String
 
   // Relationships
-  articleTags      ArticleTag[]
+  articleTags        ArticleTag[]
   articleCollections ArticleCollection[]
-  highlights       Highlight[]
-  notes            Note[]
+  highlights         Highlight[]
+  notes              Note[]
 
   @@index([userId])
   @@index([status])
@@ -107,10 +108,10 @@ model Tag {
 }
 
 model ArticleTag {
-  id        String   @id @default(cuid())
-  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
   articleId String
-  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
   tagId     String
 
   @@unique([articleId, tagId])
@@ -119,10 +120,10 @@ model ArticleTag {
 }
 
 model ArticleCollection {
-  id         String    @id @default(cuid())
-  article    Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  articleId  String
-  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  article      Article    @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  articleId    String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   collectionId String
 
   @@unique([articleId, collectionId])
@@ -133,12 +134,12 @@ model ArticleCollection {
 model Highlight {
   id        String   @id @default(cuid())
   text      String
-  position  String?  // Position identifier in the article
-  color     String?  // Highlight color
+  position  String? // Position identifier in the article
+  color     String? // Highlight color
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
   articleId String
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -161,7 +162,7 @@ model Note {
   highlight   Highlight? @relation(fields: [highlightId], references: [id], onDelete: Cascade)
   highlightId String?
 
-  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
   articleId String
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -188,6 +189,4 @@ enum ArticleStatus {
   READING
   FINISHED
   ARCHIVED
-  FAVORITED
 }
-

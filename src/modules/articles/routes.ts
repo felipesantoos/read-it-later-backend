@@ -19,7 +19,8 @@ const createArticleSchema = z.object({
 });
 
 const updateArticleSchema = z.object({
-  status: z.enum(['UNREAD', 'READING', 'FINISHED', 'ARCHIVED', 'FAVORITED']).optional(),
+  status: z.enum(['UNREAD', 'READING', 'FINISHED', 'ARCHIVED']).optional(),
+  isFavorited: z.boolean().optional(),
   readingProgress: z.number().min(0).max(1).optional(),
   attributes: z.record(z.any()).optional(),
   title: z.string().optional(),
@@ -144,6 +145,7 @@ router.get('/', authToken, async (req: AuthenticatedRequest, res, next) => {
   try {
     const userId = req.userId!;
     const status = req.query.status as string | undefined;
+    const isFavorited = req.query.isFavorited as string | undefined;
     const limit = parseInt(req.query.limit as string) || 50;
     const page = parseInt(req.query.page as string) || 1;
     const skip = (page - 1) * limit;
@@ -151,6 +153,9 @@ router.get('/', authToken, async (req: AuthenticatedRequest, res, next) => {
     const where: any = { userId };
     if (status) {
       where.status = status;
+    }
+    if (isFavorited !== undefined) {
+      where.isFavorited = isFavorited === 'true';
     }
 
     const [articles, total] = await Promise.all([
@@ -311,6 +316,9 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
       if (body.status === 'FINISHED') {
         updateData.finishedAt = new Date();
       }
+    }
+    if (body.isFavorited !== undefined) {
+      updateData.isFavorited = body.isFavorited;
     }
     if (body.readingProgress !== undefined) {
       updateData.readingProgress = body.readingProgress;

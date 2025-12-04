@@ -50,7 +50,7 @@ router.get('/', authToken, async (req: AuthenticatedRequest, res, next) => {
       prisma.article.count({
         where: {
           userId,
-          status: 'FAVORITED',
+          isFavorited: true,
         },
       }),
       // Total highlights
