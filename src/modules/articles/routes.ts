@@ -391,11 +391,8 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
           const newProgress = Math.min(body.currentPage / totalPages, 1);
           updateData.readingProgress = newProgress;
           
-          // Update status based on progress
-          if (newProgress >= 0.95 || body.currentPage >= totalPages) {
-            updateData.status = 'FINISHED';
-            updateData.finishedAt = new Date();
-          } else if (newProgress > 0 && article.status === 'UNREAD') {
+          // Update status to READING when article is started (but not auto-update to FINISHED)
+          if (newProgress > 0 && article.status === 'UNREAD') {
             updateData.status = 'READING';
           }
         }
@@ -419,11 +416,8 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
         updateData.currentPage = Math.round(body.readingProgress * totalPages);
       }
       
-      // Update status based on progress
-      if (body.readingProgress >= 0.95) {
-        updateData.status = 'FINISHED';
-        updateData.finishedAt = new Date();
-      } else if (body.readingProgress > 0 && article.status === 'UNREAD') {
+      // Update status to READING when article is started (but not auto-update to FINISHED)
+      if (body.readingProgress > 0 && article.status === 'UNREAD') {
         updateData.status = 'READING';
       }
     }
@@ -515,10 +509,8 @@ router.post('/:id/read', authToken, async (req: AuthenticatedRequest, res, next)
         const calculatedProgress = Math.min(currentPage / article.totalPages, 1);
         updateData.readingProgress = calculatedProgress;
         
-        if (calculatedProgress >= 0.95 || currentPage >= article.totalPages) {
-          updateData.status = 'FINISHED';
-          updateData.finishedAt = new Date();
-        } else if (calculatedProgress > 0 && article.status === 'UNREAD') {
+        // Update status to READING when article is started (but not auto-update to FINISHED)
+        if (calculatedProgress > 0 && article.status === 'UNREAD') {
           updateData.status = 'READING';
         }
       }
@@ -533,10 +525,8 @@ router.post('/:id/read', authToken, async (req: AuthenticatedRequest, res, next)
         updateData.currentPage = Math.round(progress * article.totalPages);
       }
       
-      if (progress === 1) {
-        updateData.status = 'FINISHED';
-        updateData.finishedAt = new Date();
-      } else if (progress > 0 && article.status === 'UNREAD') {
+      // Update status to READING when article is started (but not auto-update to FINISHED)
+      if (progress > 0 && article.status === 'UNREAD') {
         updateData.status = 'READING';
       }
     } else {
