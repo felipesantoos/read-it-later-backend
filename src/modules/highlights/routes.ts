@@ -149,6 +149,38 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
   }
 });
 
+// DELETE /highlights/article/:articleId - Deletar todos os highlights de um artigo
+router.delete('/article/:articleId', authToken, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const userId = req.userId!;
+    const articleId = req.params.articleId;
+
+    // Verify article belongs to user
+    const article = await prisma.article.findFirst({
+      where: {
+        id: articleId,
+        userId,
+      },
+    });
+
+    if (!article) {
+      return res.status(404).json({ error: 'Artigo não encontrado' });
+    }
+
+    // Delete all highlights for this article (notes are deleted automatically via cascade)
+    await prisma.highlight.deleteMany({
+      where: {
+        articleId,
+        userId,
+      },
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
 // DELETE /highlights/:id - Deletar highlight
 router.delete('/:id', authToken, async (req: AuthenticatedRequest, res, next) => {
   try {
