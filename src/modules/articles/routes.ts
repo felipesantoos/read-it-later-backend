@@ -1,13 +1,24 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
 import { prisma } from '../../config/prisma';
 import { authToken, AuthenticatedRequest } from '../../middleware/authToken';
 import { extractContent, generateUrlHash, type ExtractedMetadata } from '../../services/contentExtractor';
+import { uploadFile, generateFileHash, deleteFile } from '../../services/storage';
+import { extractContentFromFile, isAllowedFileType } from '../../services/fileProcessor';
 
 const router = Router();
 
+// Configure multer for file uploads (50MB limit)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB
+  },
+});
+
 const createArticleSchema = z.object({
-  url: z.string().url(),
+  url: z.string().url().optional(),
   contentType: z.enum(['ARTICLE', 'BLOG', 'PDF', 'YOUTUBE', 'TWITTER', 'NEWSLETTER', 'BOOK', 'EBOOK']).optional(),
   title: z.string().optional(),
   description: z.string().optional(),
@@ -31,14 +42,27 @@ const updateArticleSchema = z.object({
 });
 
 // POST /articles - Criar artigo (pode ser público com token no body ou header)
-router.post('/', async (req, res, next) => {
+// Aceita tanto JSON (URL) quanto multipart/form-data (arquivo)
+router.post('/', upload.single('file'), async (req, res, next) => {
   try {
-    const body = createArticleSchema.parse(req.body);
-    const url = body.url;
-
+    const file = req.file;
+    const isFileUpload = !!file;
+    
     // Get token from header or body
     const authHeader = req.headers.authorization;
-    const bodyToken = (req.body as any).token;
+    let bodyToken: string | undefined;
+    
+    // Parse body differently based on content type
+    let body: any = {};
+    if (isFileUpload) {
+      // For file uploads, body fields come from form-data
+      body = req.body;
+      bodyToken = body.token;
+    } else {
+      // For JSON requests, parse normally
+      body = createArticleSchema.parse(req.body);
+      bodyToken = body.token;
+    }
     
     let token: string | undefined;
     if (authHeader?.startsWith('Bearer ')) {
@@ -65,59 +89,133 @@ router.post('/', async (req, res, next) => {
 
     const userId = accessToken.userId;
 
-    // Generate URL hash for duplicate detection
-    const urlHash = generateUrlHash(url);
-
-    // Check for duplicate
-    const existing = await prisma.article.findFirst({
-      where: {
-        urlHash,
-        userId,
-      },
-    });
-
-    if (existing) {
-      return res.status(409).json({ 
-        error: 'Artigo já existe',
-        data: existing,
-      });
+    // Validate that either URL or file is provided
+    if (!file && !body.url) {
+      return res.status(400).json({ error: 'Deve fornecer uma URL ou um arquivo' });
     }
 
-    // Extract content if not provided
+    let url: string | undefined;
+    let urlHash: string | undefined;
+    let fileUrl: string | undefined;
+    let fileName: string | undefined;
+    let fileSize: number | undefined;
+    let fileType: string | undefined;
+    let fileHash: string | undefined;
     let metadata: ExtractedMetadata;
-    if (body.title && body.description) {
-      // Use provided metadata
-      metadata = {
-        contentType: body.contentType || 'ARTICLE',
-        title: body.title,
-        description: body.description,
-        favicon: body.favicon,
-        coverImage: body.coverImage,
-        siteName: body.siteName,
-        content: body.content,
-      };
-    } else {
-      // Extract from URL
+
+    if (file) {
+      // Process file upload
+      if (!isAllowedFileType(file.originalname, file.mimetype)) {
+        return res.status(400).json({ error: 'Tipo de arquivo não suportado' });
+      }
+
+      // Generate file hash for duplicate detection
+      fileHash = generateFileHash(file.buffer);
+
+      // Check for duplicate file
+      const existing = await prisma.article.findFirst({
+        where: {
+          fileHash: fileHash,
+          userId,
+        },
+      });
+
+      if (existing) {
+        return res.status(409).json({ 
+          error: 'Arquivo já existe',
+          data: existing,
+        });
+      }
+
+      // Upload file to Cloudflare R2
+      const uploadResult = await uploadFile(
+        file.buffer,
+        file.originalname,
+        file.mimetype,
+        userId
+      );
+
+      fileUrl = uploadResult.fileUrl;
+      fileName = uploadResult.fileName;
+      fileSize = uploadResult.fileSize;
+      fileType = file.mimetype;
+
+      // Extract content from file
       try {
-        metadata = await extractContent(url);
+        metadata = await extractContentFromFile(file.buffer, file.originalname, file.mimetype);
       } catch (error) {
-        console.error('Error extracting content:', error);
-        // Use provided values or defaults
+        console.error('Error extracting content from file:', error);
+        // Delete uploaded file if content extraction fails
+        await deleteFile(fileUrl);
+        throw error;
+      }
+
+      // Override with provided metadata if available
+      if (body.title) metadata.title = body.title;
+      if (body.description) metadata.description = body.description;
+      if (body.contentType) metadata.contentType = body.contentType;
+    } else {
+      // Process URL (existing behavior)
+      if (!body.url) {
+        return res.status(400).json({ error: 'URL é obrigatória quando nenhum arquivo é fornecido' });
+      }
+      
+      const articleUrl: string = body.url;
+      url = articleUrl;
+
+      // Generate URL hash for duplicate detection
+      urlHash = generateUrlHash(articleUrl);
+
+      // Check for duplicate
+      const existing = await prisma.article.findFirst({
+        where: {
+          urlHash,
+          userId,
+        },
+      });
+
+      if (existing) {
+        return res.status(409).json({ 
+          error: 'Artigo já existe',
+          data: existing,
+        });
+      }
+
+      // Extract content if not provided
+      if (body.title && body.description) {
+        // Use provided metadata
         metadata = {
           contentType: body.contentType || 'ARTICLE',
-          title: body.title || extractTitleFromUrl(url),
+          title: body.title,
           description: body.description,
           favicon: body.favicon,
           coverImage: body.coverImage,
           siteName: body.siteName,
           content: body.content,
         };
+      } else {
+        // Extract from URL
+        try {
+          metadata = await extractContent(articleUrl);
+        } catch (error) {
+          console.error('Error extracting content:', error);
+          // Use provided values or defaults
+          metadata = {
+            contentType: body.contentType || 'ARTICLE',
+            title: body.title || extractTitleFromUrl(articleUrl),
+            description: body.description,
+            favicon: body.favicon,
+            coverImage: body.coverImage,
+            siteName: body.siteName,
+            content: body.content,
+          };
+        }
       }
     }
 
     // Merge attributes with extracted metadata
     const attributes: Record<string, any> = {
-      ...(body.attributes || {}),
+      ...(body.attributes ? (typeof body.attributes === 'string' ? JSON.parse(body.attributes) : body.attributes) : {}),
     };
     
     if ('author' in metadata && metadata.author) {
@@ -133,8 +231,13 @@ router.post('/', async (req, res, next) => {
     // Create article
     const article = await prisma.article.create({
       data: {
-        url,
-        urlHash,
+        ...(url ? { url } : {}),
+        ...(urlHash ? { urlHash } : {}),
+        ...(fileUrl ? { fileUrl } : {}),
+        ...(fileName ? { fileName } : {}),
+        ...(fileSize ? { fileSize } : {}),
+        ...(fileType ? { fileType } : {}),
+        ...(fileHash ? { fileHash } : {}),
         userId,
         title: metadata.title || body.title,
         description: metadata.description || body.description,
@@ -288,10 +391,10 @@ router.get('/export', authToken, async (req: AuthenticatedRequest, res, next) =>
 
     if (format === 'csv') {
       // CSV export
-      const headers = ['Title', 'URL', 'Status', 'Reading Progress', 'Created At', 'Tags', 'Collections'];
+      const headers = ['Title', 'URL/File', 'Status', 'Reading Progress', 'Created At', 'Tags', 'Collections'];
       const rows = articles.map(article => [
         article.title || '',
-        article.url,
+        (article.url || (article as any).fileName || ''),
         article.status,
         (article.readingProgress * 100).toFixed(0) + '%',
         article.createdAt.toISOString(),
@@ -463,6 +566,11 @@ router.delete('/:id', authToken, async (req: AuthenticatedRequest, res, next) =>
 
     if (!article) {
       return res.status(404).json({ error: 'Artigo não encontrado' });
+    }
+
+    // Delete file from R2 if exists
+    if ((article as any).fileUrl) {
+      await deleteFile((article as any).fileUrl);
     }
 
     await prisma.article.delete({

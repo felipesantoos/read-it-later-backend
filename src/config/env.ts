@@ -15,5 +15,10 @@ export const env = {
   databaseUrl: required(process.env.DATABASE_URL, "DATABASE_URL"),
   corsOrigin: process.env.CORS_ORIGIN ?? "*",
   tokenAdminSecret: process.env.TOKEN_ADMIN_SECRET ?? "",
+  cloudflareR2AccountId: process.env.CLOUDFLARE_R2_ACCOUNT_ID,
+  cloudflareR2AccessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+  cloudflareR2SecretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+  cloudflareR2BucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,
+  cloudflareR2PublicUrl: process.env.CLOUDFLARE_R2_PUBLIC_URL,
 };
 

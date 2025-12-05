@@ -36,8 +36,13 @@ model AccessToken {
 
 model Article {
   id          String             @id @default(cuid())
-  url         String
-  urlHash     String             @unique // For duplicate detection
+  url         String?            // Optional: can be URL or file
+  urlHash     String?            @unique // For duplicate detection (optional for files)
+  fileUrl     String?            // URL do arquivo no Cloudflare R2
+  fileName    String?            // Nome original do arquivo
+  fileSize    Int?               // Tamanho do arquivo em bytes
+  fileType    String?            // MIME type do arquivo
+  fileHash    String?            // Hash do conteúdo do arquivo para detecção de duplicatas
   title       String?
   description String?
   favicon     String?
@@ -78,6 +83,7 @@ model Article {
   @@index([userId])
   @@index([status])
   @@index([urlHash])
+  @@index([fileHash])
   @@index([createdAt])
   @@index([userId, status])
 }
