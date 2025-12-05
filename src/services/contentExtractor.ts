@@ -116,13 +116,35 @@ export async function extractContent(url: string, useCache: boolean = true): Pro
         
         // Wrap tokens (words, symbols, punctuation) in spans with IDs for future features
         // Only apply to HTML content, not plain text
+        let tokenIndex = 0;
         if (sanitizedContent && /<[a-z][\s\S]*>/i.test(sanitizedContent)) {
           sanitizedContent = wrapTokensInSpans(sanitizedContent);
+          // Count tokens in content to continue numbering for title
+          const tempDom = new JSDOM(sanitizedContent, { contentType: 'text/html' });
+          const contentSpans = tempDom.window.document.querySelectorAll('[id^="ritl-w-"]');
+          if (contentSpans.length > 0) {
+            // Find the highest index
+            contentSpans.forEach((span) => {
+              const match = span.id.match(/ritl-w-(\d+)/);
+              if (match) {
+                const index = parseInt(match[1], 10);
+                if (index >= tokenIndex) {
+                  tokenIndex = index + 1;
+                }
+              }
+            });
+          }
+        }
+        
+        // Process title to add token spans (continuing from content token index)
+        let processedTitle = article.title || metadata.title;
+        if (processedTitle) {
+          processedTitle = wrapTextInSpans(processedTitle, tokenIndex);
         }
         
         // Save HTML content (not just text)
         metadata.content = sanitizedContent || article.textContent || '';
-        metadata.title = article.title || metadata.title;
+        metadata.title = processedTitle;
         
         // Extract images from article content
         if (article.content) {
@@ -494,6 +516,61 @@ function sanitizeHtml(html: string): string {
   html = html.replace(/data:text\/html/gi, '');
   
   return html;
+}
+
+/**
+ * Wrap plain text in spans with unique IDs
+ * This is used for titles and other plain text fields
+ */
+function wrapTextInSpans(text: string, startIndex: number = 0): string {
+  if (!text || !text.trim()) {
+    return text;
+  }
+
+  try {
+    const tokenRegex = /(\S+|\s+)/g;
+    const tokens: Array<{ text: string; isWhitespace: boolean }> = [];
+    let match;
+    let tokenIndex = startIndex;
+
+    tokenRegex.lastIndex = 0;
+    while ((match = tokenRegex.exec(text)) !== null) {
+      const tokenText = match[1];
+      const isWhitespace = /^\s+$/.test(tokenText);
+      tokens.push({ text: tokenText, isWhitespace });
+    }
+
+    if (tokens.length === 0) {
+      return text;
+    }
+
+    // Build HTML string with spans
+    // Escape HTML in token text to prevent XSS
+    const escapeHtml = (str: string): string => {
+      const map: { [key: string]: string } = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      };
+      return str.replace(/[&<>"']/g, (m) => map[m]);
+    };
+
+    let result = '';
+    for (const token of tokens) {
+      if (token.isWhitespace) {
+        result += escapeHtml(token.text);
+      } else {
+        result += `<span id="ritl-w-${tokenIndex++}">${escapeHtml(token.text)}</span>`;
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error wrapping text in spans:', error);
+    return text;
+  }
 }
 
 /**
