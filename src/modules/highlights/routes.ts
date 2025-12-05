@@ -104,6 +104,7 @@ router.post('/', authToken, async (req: AuthenticatedRequest, res, next) => {
       },
       include: {
         article: true,
+        notes: true,
       },
     });
 

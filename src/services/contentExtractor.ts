@@ -114,6 +114,12 @@ export async function extractContent(url: string, useCache: boolean = true): Pro
         // Normalize image URLs to absolute URLs
         sanitizedContent = normalizeImageUrls(sanitizedContent, url);
         
+        // Wrap tokens (words, symbols, punctuation) in spans with IDs for future features
+        // Only apply to HTML content, not plain text
+        if (sanitizedContent && /<[a-z][\s\S]*>/i.test(sanitizedContent)) {
+          sanitizedContent = wrapTokensInSpans(sanitizedContent);
+        }
+        
         // Save HTML content (not just text)
         metadata.content = sanitizedContent || article.textContent || '';
         metadata.title = article.title || metadata.title;
@@ -488,6 +494,122 @@ function sanitizeHtml(html: string): string {
   html = html.replace(/data:text\/html/gi, '');
   
   return html;
+}
+
+/**
+ * Wrap each word, symbol, and punctuation in spans with unique IDs
+ * This facilitates future features like highlights and TTS synchronization
+ */
+function wrapTokensInSpans(html: string): string {
+  try {
+    // Parse HTML using JSDOM - wrap in a container div to handle fragments
+    const wrappedHtml = `<div id="ritl-wrapper">${html}</div>`;
+    const dom = new JSDOM(wrappedHtml, { contentType: 'text/html' });
+    const document = dom.window.document;
+    const container = document.getElementById('ritl-wrapper');
+    
+    if (!container) {
+      return html; // Fallback if container not found
+    }
+    
+    // Counter for unique IDs
+    let tokenIndex = 0;
+    
+    // Regex to match tokens: words, symbols, and punctuation
+    // Matches: word characters, non-word characters (punctuation, symbols), whitespace
+    const tokenRegex = /(\S+|\s+)/g;
+    
+    /**
+     * Process a text node by wrapping each token in a span
+     */
+    function processTextNode(textNode: Text): void {
+      const text = textNode.textContent || '';
+      if (!text.trim()) {
+        return; // Skip empty or whitespace-only text nodes
+      }
+      
+      const tokens: Array<{ text: string; isWhitespace: boolean }> = [];
+      let match;
+      
+      // Reset regex lastIndex to ensure we match from the start
+      tokenRegex.lastIndex = 0;
+      
+      // Extract all tokens
+      while ((match = tokenRegex.exec(text)) !== null) {
+        const tokenText = match[1];
+        const isWhitespace = /^\s+$/.test(tokenText);
+        tokens.push({ text: tokenText, isWhitespace });
+      }
+      
+      if (tokens.length === 0) {
+        return;
+      }
+      
+      // Create a document fragment to hold the new spans
+      const fragment = document.createDocumentFragment();
+      
+      for (const token of tokens) {
+        if (token.isWhitespace) {
+          // For whitespace, create a text node (don't wrap in span)
+          fragment.appendChild(document.createTextNode(token.text));
+        } else {
+          // For actual tokens (words, symbols, punctuation), wrap in span
+          const span = document.createElement('span');
+          span.id = `ritl-w-${tokenIndex++}`;
+          span.textContent = token.text;
+          fragment.appendChild(span);
+        }
+      }
+      
+      // Replace the text node with the fragment
+      if (textNode.parentNode) {
+        textNode.parentNode.replaceChild(fragment, textNode);
+      }
+    }
+    
+    // Use TreeWalker to traverse all text nodes
+    const walker = document.createTreeWalker(
+      container,
+      dom.window.NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: (node: Node) => {
+          // Skip text nodes inside script, style, and other non-content elements
+          const parent = node.parentElement;
+          if (!parent) return dom.window.NodeFilter.FILTER_REJECT;
+          
+          const tagName = parent.tagName?.toLowerCase();
+          const skipTags = ['script', 'style', 'noscript', 'iframe', 'object', 'embed'];
+          
+          if (skipTags.includes(tagName)) {
+            return dom.window.NodeFilter.FILTER_REJECT;
+          }
+          
+          return dom.window.NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+    
+    // Collect all text nodes first (to avoid issues with modifying while iterating)
+    const textNodes: Text[] = [];
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === dom.window.Node.TEXT_NODE) {
+        textNodes.push(node as Text);
+      }
+    }
+    
+    // Process each text node
+    for (const textNode of textNodes) {
+      processTextNode(textNode);
+    }
+    
+    // Return the modified HTML (remove the wrapper div)
+    return container.innerHTML;
+  } catch (error) {
+    console.error('Error wrapping tokens in spans:', error);
+    // Return original HTML if processing fails
+    return html;
+  }
 }
 
 /**

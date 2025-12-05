@@ -19,8 +19,9 @@ const createArticleSchema = z.object({
 });
 
 const updateArticleSchema = z.object({
-  status: z.enum(['UNREAD', 'READING', 'FINISHED', 'ARCHIVED']).optional(),
+  status: z.enum(['UNREAD', 'READING', 'PAUSED', 'FINISHED', 'ARCHIVED']).optional(),
   isFavorited: z.boolean().optional(),
+  rating: z.number().int().min(0).max(5).nullable().optional(),
   readingProgress: z.number().min(0).max(1).optional(),
   totalPages: z.number().int().positive().nullable().optional(),
   currentPage: z.number().int().min(0).nullable().optional(),
@@ -164,6 +165,7 @@ router.get('/', authToken, async (req: AuthenticatedRequest, res, next) => {
     const userId = req.userId!;
     const status = req.query.status as string | undefined;
     const isFavorited = req.query.isFavorited as string | undefined;
+    const minRating = req.query.minRating as string | undefined;
     const limit = parseInt(req.query.limit as string) || 50;
     const page = parseInt(req.query.page as string) || 1;
     const skip = (page - 1) * limit;
@@ -174,6 +176,12 @@ router.get('/', authToken, async (req: AuthenticatedRequest, res, next) => {
     }
     if (isFavorited !== undefined) {
       where.isFavorited = isFavorited === 'true';
+    }
+    if (minRating !== undefined) {
+      const ratingValue = parseInt(minRating);
+      if (!isNaN(ratingValue) && ratingValue >= 0 && ratingValue <= 5) {
+        where.rating = { gte: ratingValue };
+      }
     }
 
     const [articles, total] = await Promise.all([
@@ -232,6 +240,7 @@ router.get('/counts', authToken, async (req: AuthenticatedRequest, res, next) =>
     const counts = {
       UNREAD: 0,
       READING: 0,
+      PAUSED: 0,
       FINISHED: 0,
       ARCHIVED: 0,
       total,
@@ -374,6 +383,9 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
     if (body.isFavorited !== undefined) {
       updateData.isFavorited = body.isFavorited;
     }
+    if (body.rating !== undefined) {
+      updateData.rating = body.rating;
+    }
     
     // Handle page tracking and sync with readingProgress
     if (body.totalPages !== undefined) {
@@ -390,11 +402,6 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
         if (totalPages && totalPages > 0) {
           const newProgress = Math.min(body.currentPage / totalPages, 1);
           updateData.readingProgress = newProgress;
-          
-          // Update status to READING when article is started (but not auto-update to FINISHED)
-          if (newProgress > 0 && article.status === 'UNREAD') {
-            updateData.status = 'READING';
-          }
         }
         
         // Validate currentPage doesn't exceed totalPages
@@ -414,11 +421,6 @@ router.patch('/:id', authToken, async (req: AuthenticatedRequest, res, next) => 
       const totalPages = article.totalPages;
       if (totalPages && totalPages > 0) {
         updateData.currentPage = Math.round(body.readingProgress * totalPages);
-      }
-      
-      // Update status to READING when article is started (but not auto-update to FINISHED)
-      if (body.readingProgress > 0 && article.status === 'UNREAD') {
-        updateData.status = 'READING';
       }
     }
     
@@ -508,11 +510,6 @@ router.post('/:id/read', authToken, async (req: AuthenticatedRequest, res, next)
       if (article.totalPages && article.totalPages > 0) {
         const calculatedProgress = Math.min(currentPage / article.totalPages, 1);
         updateData.readingProgress = calculatedProgress;
-        
-        // Update status to READING when article is started (but not auto-update to FINISHED)
-        if (calculatedProgress > 0 && article.status === 'UNREAD') {
-          updateData.status = 'READING';
-        }
       }
     }
     // Handle percentage-based update
@@ -523,11 +520,6 @@ router.post('/:id/read', authToken, async (req: AuthenticatedRequest, res, next)
       // Sync currentPage if totalPages is available
       if (article.totalPages && article.totalPages > 0) {
         updateData.currentPage = Math.round(progress * article.totalPages);
-      }
-      
-      // Update status to READING when article is started (but not auto-update to FINISHED)
-      if (progress > 0 && article.status === 'UNREAD') {
-        updateData.status = 'READING';
       }
     } else {
       return res.status(400).json({ error: 'Deve fornecer progress (0-1) ou currentPage (número >= 0)' });

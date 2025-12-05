@@ -11,6 +11,7 @@ import tagsRoutes from './modules/tags/routes';
 import highlightsRoutes from './modules/highlights/routes';
 import searchRoutes from './modules/search/routes';
 import analyticsRoutes from './modules/analytics/routes';
+import settingsRoutes from './modules/settings/routes';
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/tags', tagsRoutes);
 app.use('/api/highlights', highlightsRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Error handler (deve ser o último middleware)
 app.use(errorHandler);

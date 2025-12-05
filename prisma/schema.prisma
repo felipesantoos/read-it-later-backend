@@ -10,6 +10,7 @@ datasource db {
 model User {
   id           String        @id @default(cuid())
   email        String?       @unique
+  theme        String?       @default("light")
   createdAt    DateTime      @default(now())
   accessTokens AccessToken[]
   articles     Article[]
@@ -46,6 +47,7 @@ model Article {
   contentType ArticleContentType @default(ARTICLE)
   status      ArticleStatus      @default(UNREAD)
   isFavorited Boolean            @default(false)
+  rating      Int? // Rating from 0 to 5 stars
   language    String?
 
   // Content attributes (stored as JSON)
@@ -189,6 +191,7 @@ enum ArticleContentType {
 enum ArticleStatus {
   UNREAD
   READING
+  PAUSED
   FINISHED
   ARCHIVED
 }
